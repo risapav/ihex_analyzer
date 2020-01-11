@@ -1,0 +1,16 @@
+{
+ "python.pythonPath": "/usr/bin/python",
+"python.linting.pylintEnabled": true,
+"python.linting.enabled": true,
+"python.linting.pycodestyleEnabled": true,
+"[typescript]": {
+    "editor.formatOnSave": true,
+    "editor.formatOnPaste": true
+  },
+  "[markdown]": {
+    "editor.formatOnSave": true,
+    "editor.wordwrap": "on",
+    "editor.renderWhitespace": "all",
+    "editor.acceptSuggestionOnEnter": "off"
+  }
+}
