@@ -19,9 +19,8 @@ class HexFile:
 
 def main():
     hexfile = HexFile('pokus.hex')
+    print (hexfile.filename)
 
 
 
-
-if __name__ == '__main__':
-    main()
+main()
