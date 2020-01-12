@@ -182,7 +182,7 @@ class HexFile:
 
 
 def main():
-    hexfile = HexFile('demo/7.hex')
+    hexfile = HexFile('demo/5.hex')
     hexfile.doAnalyze()
     return 0
 
