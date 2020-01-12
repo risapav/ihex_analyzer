@@ -11,19 +11,33 @@ import struct
 import codecs
 
 
+ROWTYPE_DATA = 0x00
+ROWTYPE_EOF = 0x01
+ROWTYPE_EXT_SEG_ADDR = 0x02
+ROWTYPE_START_SEG_ADDR = 0x03
+ROWTYPE_EXT_LIN_ADDR = 0x04
+ROWTYPE_START_LIN_ADDR = 0x05
+
+
 class HexFile:
     """
     trieda spracuvajuca Hexfile
     """
 
     def __init__(self, filename):
-        self.filename = filename
-        self.segbase = 0
-        self.mode = 8
-        self.setStart()
+        self._filename = filename
+        self._CS = 0
+        self._IP = 0
+        self._EIP = 0
+
+        self._ADDRESS = 0
+        self._SBA = 0
+        self._LBA = 0
+
+        self._typ = ROWTYPE_DATA
 
     def doAnalyze(self):
-        with open(self.filename, 'r', encoding='utf-8') as fp:
+        with open(self._filename, 'r', encoding='utf-8') as fp:
             cnt = 1
             for line in fp:
                 line = line.strip()
@@ -34,30 +48,42 @@ class HexFile:
                     raise ValueError(
                         "Invalid line start character (%r)" % line[0])
                     continue
+                # ------------------------------------------------------------
+                # vypocet dlzky retazca ihex recordu
+                buffer = codecs.decode(line[1:3], "hex")
+                dataend = struct.unpack_from(">B", buffer, offset=0)[0]
+                dataend *= 2
+                dataend += 2 + 4 + 2 + 2 + 1
+                # print(line[0:dataend])
+                # ------------------------------------------------------------
                 # crc vypocitane zo zvysku riadku musi byt 0
-                crc = self.calcChecksum(line[1:])
-                print("crc : ", crc)
+                crc = self.calcChecksum(line[1:dataend])
+                # print("crc : ", crc)
                 if crc != 0:
                     raise ValueError(
                         "Record checksum doesn't match on line %d" % cnt)
                     continue
+                # ------------------------------------------------------------
                 # teraz je riadok validny a moze zacat analyza
-                dataend = len(line)
+                # dataend = len(line)
                 typ, length, addr, data = self.parseLine(
                     cnt, line[1:dataend - 2])
 
                 self.analyzeLine(typ, length, addr, data)
                 cnt += 1
 
-    def setMode(self, mode):
-        self.mode = int(mode)
+    def setAddress(self, DRLO):
+        if self._typ == ROWTYPE_EXT_SEG_ADDR:  # Extended Segment Address
+            DRI = 0
+            self._ADDRESS = self._SBA * 0x10 + (DRLO + DRI) % 0xFFFF
 
-    def setSegbase(self, data):
-        self.segbase = data
-        print("set segBase: ", self.segbase)
+        elif self._typ == ROWTYPE_EXT_LIN_ADDR:  # Extended Linear Address
+            DRI = 0
+            self._ADDRESS = (self._LBA * 0x10000 + DRLO + DRI) % 0xFFFFFFFF
 
-    def setStart(self, start=None):
-        self.start = start
+        else:
+            DRI = 0
+            self._ADDRESS = DRLO + DRI
 
     def byteCnv(self, data):
         buffer = codecs.decode(data, "hex")
@@ -74,43 +100,62 @@ class HexFile:
         buffer = codecs.decode(data, "hex")
         return struct.unpack(">I", buffer)[0]
 
+    def txtMessage(self, typ, length, addr, data, txt):
+        print('{0:0{1}X}'.format(self._ADDRESS, 8),
+              "typ:", '{0:0{1}X}'.format(typ, 2),
+              "addr:", '{0:0{1}X}'.format(addr, 4),
+              "len:", '{0:0{1}X}'.format(length, 2),
+              "data:", data,
+              " -> ", txt
+              )
+
     # print(riadok[:-1])
     def analyzeLine(self, typ, length, addr, data):
         buffer = codecs.decode(data[:], "hex")
 
-        if typ == 0x00:  # Data container
-            target_address = self.segbase + self.mode + addr
-            print('{0:0{1}X}'.format(target_address, 8), "Data: ", data)
+        if typ == ROWTYPE_DATA:  # Data container
+            self.setAddress(addr)
+            self.txtMessage(typ, length, addr, data, " data ")
 
-        elif typ == 0x01:  # End of file
-            print("End of file")  # Should we check for garbage after this?
+        elif typ == ROWTYPE_EOF:  # End of file
+            # print("End of file")  # Should we check for garbage after this?
+            self._typ = ROWTYPE_DATA
+            self.setAddress(addr)
+            self.txtMessage(typ, length, addr, data, "End of file")
 
-        elif typ == 0x02:  # Extended Segment Address
-            self.setMode(16)
-            num = self.wordCnv(data)
-            self.setSegbase(num)
-            print('{0:0{1}X}'.format(self.segbase, 8),
-                  "Extended Segment Address")
+        elif typ == ROWTYPE_EXT_SEG_ADDR:  # Extended Segment Address
+            # SBA +  ([DRLO  +  DRI]  MOD  64K)
+            self._typ = ROWTYPE_DATA
+            self.setAddress(addr)
+            self.txtMessage(typ, length, addr, data,
+                            "Extended Segment Address")
+            self._SBA = self.wordCnv(data)
+            self._typ = ROWTYPE_EXT_SEG_ADDR
 
-        elif typ == 0x03:  # Start Segment Address
-            self.setMode(16)
-            cs = self.wordCnv(data[0:2])
-            ip = self.wordCnv(data[2:4])
-            self.setStart((cs, ip))
-            print('{0:0{1}X}'.format(self.segbase, 8),
-                  "Start Segment Address")
+        elif typ == ROWTYPE_START_SEG_ADDR:  # Start Segment Address
+            # CS:IP
+            self._typ = ROWTYPE_DATA
+            self.setAddress(addr)
+            self.txtMessage(typ, length, addr,
+                            data, "Start Segment Address")
+            self._CS = self.wordCnv(data[0:2])
+            self._IP = self.wordCnv(data[2:4])
 
-        elif typ == 0x04:  # Extended Linear Address
-            self.setMode(32)
-            num = self.wordCnv(data)
-            self.setSegbase(num)
-            print('{0:0{1}X}'.format(self.segbase, 8),
-                  "Extended Linear Address")
+        elif typ == ROWTYPE_EXT_LIN_ADDR:  # Extended Linear Address
+            # (LBA + DRLO + DRI) MOD 4G
+            self._typ = ROWTYPE_DATA
+            self.setAddress(addr)
+            self.txtMessage(typ, length, addr, data,
+                            "Extended Linear Address")
+            self._LBA = self.wordCnv(data)
+            self._typ = ROWTYPE_EXT_LIN_ADDR
 
-        elif typ == 0x05:  # Start Linear Address
-            self.setMode(32)
-            num = self.wordCnv(data[0:4])
-            print('{0:0{1}X}'.format(num, 8),  "Start Linear Address")
+        elif typ == ROWTYPE_START_LIN_ADDR:  # Start Linear Address
+            # EIP
+            self._typ = ROWTYPE_DATA
+            self.txtMessage(typ, length, addr,
+                            data, "Start Linear Address")
+            self._EIP = self.wordCnv(data[0:4])
 
         else:  # undefined record
             raise ValueError("Invalid type byte")
@@ -118,21 +163,17 @@ class HexFile:
     def calcChecksum(self, data):
         crc = 0
         buffer = codecs.decode(data, "hex")
-        print(type(buffer), len(buffer), buffer, data)
+        # print(type(buffer), len(buffer), buffer, data)
         for byte in buffer:
-            crc += byte & 0xFF
+            crc += byte
         return crc & 0xFF
 
     def parseLine(self, cnt, rawline):
         try:
             line = codecs.decode(rawline, "hex")
-            print(cnt, rawline, line)
+            # print(cnt, rawline, line)
             length, addr, typ = struct.unpack_from(">BHB", line, offset=0)
             data = rawline[8:]
-            print("typ: ", '{0:0{1}X}'.format(typ, 2),
-                  "addr: ", '{0:0{1}X}'.format(addr, 4),
-                  "len: ", '{0:0{1}X}'.format(length, 2),
-                  "data: ", data)
             return (typ, length, addr, data)
         except ValueError:
             raise ValueError("Invalid hex data")
@@ -141,7 +182,7 @@ class HexFile:
 
 
 def main():
-    hexfile = HexFile('2.hex')
+    hexfile = HexFile('demo/7.hex')
     hexfile.doAnalyze()
     return 0
 
