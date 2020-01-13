@@ -7,16 +7,19 @@ See the module's `Github homepage <https://github.com/risapav/ihex_analyzer>`_
 for details.
 """
 
+# pouzite kniznice
 import struct
 import codecs
 
-
+# definovanie konstant
 ROWTYPE_DATA = 0x00  # Data container
 ROWTYPE_EOF = 0x01  # End of file
 ROWTYPE_EXT_SEG_ADDR = 0x02  # Extended Segment Address
 ROWTYPE_START_SEG_ADDR = 0x03  # Start Segment Address
 ROWTYPE_EXT_LIN_ADDR = 0x04  # Extended Linear Address
 ROWTYPE_START_LIN_ADDR = 0x05   # Start Linear Address
+
+# definovanie tried
 
 
 class HexFile:
@@ -202,9 +205,8 @@ class HexFile:
 
         return (0x00, 0x00, 0x00, "\xFF\xFF")
 
+
 # hlavna funkcia
-
-
 def main():
     hexfile = HexFile('demo/ds30loader.X.production.hex')
     hexfile.doAnalyze()
